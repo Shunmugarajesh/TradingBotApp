@@ -1,98 +1,283 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from "react"
+import {
+   Button,
+   ScrollView,
+   StyleSheet,
+   Text,
+   TextInput,
+   TouchableOpacity,
+   View
+} from "react-native"
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { downloadInstrumentMaster } from "@/services/instrumentMaster"
+import { addLog, getLogs } from "../../services/eventLogger"
+import { kotakLogin } from "../../services/kotakLogin"
+import { logout } from "../../services/logout"
+import { getSession, isLoggedIn } from "../../services/sessionManager"
+import { startTelegram } from "../../services/telegramReader"
 
-export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+export default function Dashboard(){
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
-  );
+const [logged,setLogged] = useState(false)
+const [totp,setTotp] = useState("")
+const [botRunning,setBotRunning] = useState(false)
+const [logs,setLogs] = useState<string[]>([])
+
+let interval:any
+
+useEffect(()=>{
+},[])
+
+useEffect(()=>{
+
+init()
+
+const logTimer = setInterval(()=>{
+setLogs([...getLogs()])
+},1000)
+
+return ()=>{
+clearInterval(logTimer)
+if(interval) clearInterval(interval)
+}
+
+},[])
+
+async function init(){
+const state = await isLoggedIn()
+setLogged(state)
+}
+
+async function handleLogin(){
+
+try{
+
+if(!totp){
+alert("Enter TOTP")
+return
+}
+
+addLog("Login started")
+
+await kotakLogin(totp)
+
+setLogged(true)
+
+addLog("Login successful")
+
+const session = await getSession()
+
+addLog(`Base URL: ${session.baseUrl}`)
+
+await downloadInstrumentMaster(session.baseUrl, session.token)
+
+addLog("Instrument master download completed")
+
+}catch(e){
+
+addLog("Login failed")
+alert("Login failed")
+
+}
+
+}
+
+async function handleLogout(){
+
+await logout()
+
+setLogged(false)
+
+stopBot()
+
+addLog("Logged out")
+
+}
+
+function startBot(){
+if(botRunning) return
+
+addLog("Bot started")
+
+interval = setInterval(()=>{
+startTelegram();
+},5000)
+
+setBotRunning(true)
+}
+
+function stopBot(){
+
+if(interval){
+clearInterval(interval)
+}
+
+setBotRunning(false)
+
+addLog("Bot stopped")
+
+}
+
+return(
+
+<View style={styles.container}>
+
+<Text style={styles.title}>
+Trading Bot Dashboard
+</Text>
+
+<Text style={styles.status}>
+Status: {logged ? "Logged In" : "Logged Out"}
+</Text>
+
+{!logged && (
+
+<>
+<Text style={styles.label}>
+Enter Google Authenticator TOTP
+</Text>
+
+<TextInput
+style={styles.input}
+placeholder="Enter 6 digit TOTP"
+placeholderTextColor="#00A000"
+value={totp}
+onChangeText={setTotp}
+/>
+
+<Button
+title="Login"
+onPress={handleLogin}
+color="#00A000"
+/>
+</>
+
+)}
+
+{logged && (
+
+<>
+{/* ✅ Buttons in one row */}
+<View style={styles.buttonRow}>
+
+<TouchableOpacity style={styles.button} onPress={handleLogout}>
+<Text style={styles.buttonText}>LOGOUT</Text>
+</TouchableOpacity>
+
+<TouchableOpacity style={styles.button} onPress={startBot}>
+<Text style={styles.buttonText}>
+{botRunning ? "RUNNING" : "START"}
+</Text>
+</TouchableOpacity>
+
+<TouchableOpacity style={styles.button} onPress={stopBot}>
+<Text style={styles.buttonText}>STOP</Text>
+</TouchableOpacity>
+
+</View>
+
+</>
+
+)}
+
+<Text style={styles.logTitle}>
+Event Logs
+</Text>
+
+{/* ✅ Full height + selectable */}
+<View style={styles.logContainer}>
+<ScrollView
+contentContainerStyle={{ paddingBottom: 20 }}
+showsVerticalScrollIndicator={true}
+>
+
+{logs.map((log,i)=>(
+<Text key={i} style={styles.logText} selectable>
+{log}
+</Text>
+))}
+
+</ScrollView>
+</View>
+
+</View>
+
+)
+
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
-});
+
+container:{
+flex:1,
+backgroundColor:"#000000",
+padding:20
+},
+
+title:{
+color:"#00A000",
+fontSize:22,
+marginBottom:10
+},
+
+status:{
+color:"#00A000",
+marginBottom:10
+},
+
+label:{
+color:"#00A000",
+marginBottom:5
+},
+
+input:{
+borderWidth:1,
+borderColor:"#00A000",
+color:"#00A000",
+padding:8,
+marginBottom:10
+},
+
+/* ✅ Button Row */
+buttonRow:{
+flexDirection:"row",
+justifyContent:"space-between",
+marginBottom:10
+},
+
+button:{
+flex:1,
+backgroundColor:"#00A000",
+paddingVertical:12,
+marginHorizontal:5,
+borderRadius:6,
+alignItems:"center"
+},
+
+buttonText:{
+color:"#000",
+fontWeight:"bold",
+fontSize:12
+},
+
+logTitle:{
+color:"#00A000",
+fontSize:18,
+marginTop:10,
+marginBottom:5
+},
+
+/* ✅ Full screen log */
+logContainer:{
+flex:1,
+borderWidth:1,
+borderColor:"#00A000",
+padding:10
+},
+
+logText:{
+color:"#00A000",
+fontFamily:"monospace"
+}
+
+})
